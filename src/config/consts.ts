@@ -1,4 +1,6 @@
 const API_ROOT_PATH = '/api';
 const API_DOCS_PATH = '/api-docs';
+const VALIDATION_ERROR=422
+const GENERAL_ERROR=400
 
-export default { API_ROOT_PATH, API_DOCS_PATH};
+export default { API_ROOT_PATH, API_DOCS_PATH, VALIDATION_ERROR, GENERAL_ERROR};
