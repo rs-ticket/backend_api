@@ -10,6 +10,7 @@ const router: Router = Router();
 import { v4 as uuidv4 } from "uuid";
 import { DateTime } from "luxon";
 
+const saltRounds = 10;
 const mailSend = (receiver: Array<string> | string, message: string, subject: string) => {
     const text = message.replace(/(<([^>]+)>)/ig, '');
     var mailOptions = {
@@ -49,7 +50,7 @@ router.post('/sign-up', async (req, res) => {
         if (userExists) {
             res.status(422).json({ message: 'User already exists' });
         }
-        const saltRounds = 10;
+
         bcrypt.hash(password, saltRounds, (err: any, hash: any) => {
             if (err) throw new Error("Internal Server Error");
             let user = new UserModel({
@@ -96,23 +97,23 @@ router.post('/login', async (req, res) => {
 
 router.post('/forget-password', async (req, res) => {
     try {
-        const {email} = req.body
-        if(!email) {
+        const { email } = req.body
+        if (!email) {
             return res.status(422).json({ message: "email is required" })
 
         }
         // check email
         let user = await UserModel.findOne({ email: email });
         if (user) {
-            let resettoken = new resetToken({ token: uuidv4(), "user_id": user._id})
+            let resettoken = new resetToken({ token: uuidv4(), "user_id": user._id })
             resettoken.save().then(() => {
-                const link = `${process.env.BASE_URL}/password-reset/${user?._id}/${resettoken.token}`
+                const link = `${process.env.BASE_URL}/api/password-reset/${user?._id}/${resettoken.token}`
                 let mailbody = `<p>Hello ${user?.name}</p><p>Please click on this <a href="${link}">link</a></p>`
                 // send reset link on mail
                 mailSend(email, mailbody, `${process.env.PROJECT_NAME} reset password`)
             });
         }
-        return res.status(200).json({ message: "success" })
+        return res.status(200).json({ success: false, status_code: consts.HTTP_OK, message: "success" })
     } catch (error) {
         res.send("An error occured");
         console.log(error);
@@ -121,21 +122,39 @@ router.post('/forget-password', async (req, res) => {
 });
 
 
-router.get('/password-reset/:userId/:token', async(req, res) => {
-try {
-    let obj = await resetToken.findOne({
-        user_id: req.params.userId,
-        token: req.params.token
-    })
-    if (!obj) {
-        return res.status(consts.VALIDATION_ERROR).json({message: 'Invalid Token or expired'})
-    }else{
-         let dt = DateTime.fromISO(obj.createdAt)
-         let now = DateTime.utc();
-         let diff_mins = now.diff(dt, 'minutes')
-         console.log(diff_mins)
-    }
-} catch (error) {
+router.all('/password-reset/:userId/:token', async (req, res) => {
+    try {
+        console.log(req.method);
+        let obj = await resetToken.findOne({
+            user_id: req.params.userId,
+            token: req.params.token
+        })
+        if (!obj) {
+            return res.status(consts.VALIDATION_ERROR).json({ message: 'Invalid Token or expired' })
+        } else {
+            let created = String(obj.createdAt)
+            console.log(created, "created")
+            let dt = DateTime.fromJSDate(obj.createdAt)
+            let now = DateTime.now();
+            let diff_mins = now.diff(dt)
+            if (Number(diff_mins.toFormat('m')) > Number(process.env.EMAIL_RESET_LINK_VALIDITY)) {
+                return res.status(consts.VALIDATION_ERROR).json({ success: false, status_code: consts.VALIDATION_ERROR, message: 'Link Expired' });
+            }
+            if (req.method == "GET") {
+                return res.status(consts.HTTP_OK).json({ success: true, status_code: consts.HTTP_OK, message: 'eligible for change password' });
+            } else if (req.method == "POST") {
+                if (!req.body.new_password) {
+                    return res.status(consts.VALIDATION_ERROR).json({ success: false, status_code: consts.VALIDATION_ERROR, message: 'Password is required' });
+                } else {
+                    let password = await bcrypt.hash(req.body.new_password, saltRounds)
+                    const user = await UserModel.findByIdAndUpdate(req.params.userId, { password: password }).then(() => {
+                        return res.status(consts.HTTP_OK).json({ success: true, status_code: consts.HTTP_OK, message: 'Password has been changed' });
+                    });
+                }
+            }
+        }
+    
+    } catch (error) {
     res.send("An error occured");
     console.log(error);
 
